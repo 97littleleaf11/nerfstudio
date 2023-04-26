@@ -103,27 +103,30 @@ class DepthNerfactoModel(NerfactoModel):
         return loss_dict
 
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
         """Appends ground truth depth to the depth image."""
-        metrics, images = super().get_image_metrics_and_images(outputs, batch)
+        metrics, images = super().get_image_metrics_and_images(outputs, batch, generate_images)
         ground_truth_depth = batch["depth_image"]
         if not self.config.is_euclidean_depth:
             ground_truth_depth = ground_truth_depth * outputs["directions_norm"]
-
-        ground_truth_depth_colormap = colormaps.apply_depth_colormap(ground_truth_depth)
-        predicted_depth_colormap = colormaps.apply_depth_colormap(
-            outputs["depth"],
-            accumulation=outputs["accumulation"],
-            near_plane=torch.min(ground_truth_depth),
-            far_plane=torch.max(ground_truth_depth),
-        )
-        images["depth"] = torch.cat([ground_truth_depth_colormap, predicted_depth_colormap], dim=1)
         depth_mask = ground_truth_depth > 0
         metrics["depth_mse"] = torch.nn.functional.mse_loss(
             outputs["depth"][depth_mask], ground_truth_depth[depth_mask]
         )
-        return metrics, images
+
+        if generate_images and images is not None:
+            ground_truth_depth_colormap = colormaps.apply_depth_colormap(ground_truth_depth)
+            predicted_depth_colormap = colormaps.apply_depth_colormap(
+                outputs["depth"],
+                accumulation=outputs["accumulation"],
+                near_plane=torch.min(ground_truth_depth),
+                far_plane=torch.max(ground_truth_depth),
+            )
+            images["depth"] = torch.cat([ground_truth_depth_colormap, predicted_depth_colormap], dim=1)
+            return metrics, images
+
+        return metrics, None
 
     def _get_sigma(self):
         if not self.config.should_decay_sigma:

@@ -256,21 +256,40 @@ class SemanticNerfWModel(Model):
         return loss_dict
 
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
 
         image = batch["image"].to(self.device)
         rgb = outputs["rgb"]
         rgb = torch.clamp(rgb, min=0, max=1)
-        acc = colormaps.apply_colormap(outputs["accumulation"])
-        depth = colormaps.apply_depth_colormap(
-            outputs["depth"],
-            accumulation=outputs["accumulation"],
-        )
 
-        combined_rgb = torch.cat([image, rgb], dim=1)
-        combined_acc = torch.cat([acc], dim=1)
-        combined_depth = torch.cat([depth], dim=1)
+        if generate_images:
+            acc = colormaps.apply_colormap(outputs["accumulation"])
+            depth = colormaps.apply_depth_colormap(
+                outputs["depth"],
+                accumulation=outputs["accumulation"],
+            )
+
+            combined_rgb = torch.cat([image, rgb], dim=1)
+            combined_acc = torch.cat([acc], dim=1)
+            combined_depth = torch.cat([depth], dim=1)
+            images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+            for i in range(self.config.num_proposal_iterations):
+                key = f"prop_depth_{i}"
+                prop_depth_i = colormaps.apply_depth_colormap(
+                    outputs[key],
+                    accumulation=outputs["accumulation"],
+                )
+                images_dict[key] = prop_depth_i
+
+            # semantics
+            semantic_labels = torch.argmax(torch.nn.functional.softmax(outputs["semantics"], dim=-1), dim=-1)
+            images_dict["semantics_colormap"] = self.colormap.to(self.device)[semantic_labels]
+
+            # valid mask
+            images_dict["mask"] = batch["mask"].repeat(1, 1, 3)
+        else:
+            images_dict = None
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -281,24 +300,6 @@ class SemanticNerfWModel(Model):
         lpips = self.lpips(image, rgb)
 
         # all of these metrics will be logged as scalars
-        metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
-        metrics_dict["lpips"] = float(lpips)
-
-        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
-
-        for i in range(self.config.num_proposal_iterations):
-            key = f"prop_depth_{i}"
-            prop_depth_i = colormaps.apply_depth_colormap(
-                outputs[key],
-                accumulation=outputs["accumulation"],
-            )
-            images_dict[key] = prop_depth_i
-
-        # semantics
-        semantic_labels = torch.argmax(torch.nn.functional.softmax(outputs["semantics"], dim=-1), dim=-1)
-        images_dict["semantics_colormap"] = self.colormap.to(self.device)[semantic_labels]
-
-        # valid mask
-        images_dict["mask"] = batch["mask"].repeat(1, 1, 3)
+        metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim), "lpips": float(lpips)}  # type: ignore
 
         return metrics_dict, images_dict

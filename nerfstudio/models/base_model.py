@@ -188,19 +188,18 @@ class Model(nn.Module):
 
     @abstractmethod
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
         """Writes the test image outputs.
         TODO: This shouldn't return a loss
 
         Args:
-            image_idx: Index of the image.
-            step: Current step.
             batch: Batch of data.
             outputs: Outputs of the model.
+            generate_images: Whether generate combined evaluation images
 
         Returns:
-            A dictionary of metrics.
+            A dictionary of metrics and a dictionary of corresponding images if needed.
         """
 
     def load_model(self, loaded_state: Dict[str, Any]) -> None:

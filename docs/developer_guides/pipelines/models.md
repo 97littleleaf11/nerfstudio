@@ -61,8 +61,8 @@ class Model:
         """Returns a dictionary of losses to be summed which will be your loss."""
 
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
         """Returns a dictionary of images and metrics to plot. Here you can apply your colormaps."""
 ```
 

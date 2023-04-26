@@ -331,8 +331,8 @@ class SurfaceModel(Model):
         return metrics_dict
 
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
         """Writes the test image outputs.
         Args:
             outputs: Outputs of the model.
@@ -343,44 +343,47 @@ class SurfaceModel(Model):
         """
         image = batch["image"].to(self.device)
         rgb = outputs["rgb"]
-        acc = colormaps.apply_colormap(outputs["accumulation"])
+        
+        if generate_images:
+            acc = colormaps.apply_colormap(outputs["accumulation"])
+            normal = outputs["normal"]
+            normal = (normal + 1.0) / 2.0
 
-        normal = outputs["normal"]
-        normal = (normal + 1.0) / 2.0
+            combined_rgb = torch.cat([image, rgb], dim=1)
+            combined_acc = torch.cat([acc], dim=1)
+            if "depth" in batch:
+                depth_gt = batch["depth"].to(self.device)
+                depth_pred = outputs["depth"]
 
-        combined_rgb = torch.cat([image, rgb], dim=1)
-        combined_acc = torch.cat([acc], dim=1)
-        if "depth" in batch:
-            depth_gt = batch["depth"].to(self.device)
-            depth_pred = outputs["depth"]
+                # align to predicted depth and normalize
+                scale, shift = normalized_depth_scale_and_shift(
+                    depth_pred[None, ..., 0], depth_gt[None, ...], depth_gt[None, ...] > 0.0
+                )
+                depth_pred = depth_pred * scale + shift
 
-            # align to predicted depth and normalize
-            scale, shift = normalized_depth_scale_and_shift(
-                depth_pred[None, ..., 0], depth_gt[None, ...], depth_gt[None, ...] > 0.0
-            )
-            depth_pred = depth_pred * scale + shift
+                combined_depth = torch.cat([depth_gt[..., None], depth_pred], dim=1)
+                combined_depth = colormaps.apply_depth_colormap(combined_depth)
+            else:
+                depth = colormaps.apply_depth_colormap(
+                    outputs["depth"],
+                    accumulation=outputs["accumulation"],
+                )
+                combined_depth = torch.cat([depth], dim=1)
 
-            combined_depth = torch.cat([depth_gt[..., None], depth_pred], dim=1)
-            combined_depth = colormaps.apply_depth_colormap(combined_depth)
+            if "normal" in batch:
+                normal_gt = (batch["normal"].to(self.device) + 1.0) / 2.0
+                combined_normal = torch.cat([normal_gt, normal], dim=1)
+            else:
+                combined_normal = torch.cat([normal], dim=1)
+
+            images_dict = {
+                "img": combined_rgb,
+                "accumulation": combined_acc,
+                "depth": combined_depth,
+                "normal": combined_normal,
+            }
         else:
-            depth = colormaps.apply_depth_colormap(
-                outputs["depth"],
-                accumulation=outputs["accumulation"],
-            )
-            combined_depth = torch.cat([depth], dim=1)
-
-        if "normal" in batch:
-            normal_gt = (batch["normal"].to(self.device) + 1.0) / 2.0
-            combined_normal = torch.cat([normal_gt, normal], dim=1)
-        else:
-            combined_normal = torch.cat([normal], dim=1)
-
-        images_dict = {
-            "img": combined_rgb,
-            "accumulation": combined_acc,
-            "depth": combined_depth,
-            "normal": combined_normal,
-        }
+            images_dict = None
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -391,7 +394,6 @@ class SurfaceModel(Model):
         lpips = self.lpips(image, rgb)
 
         # all of these metrics will be logged as scalars
-        metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim)}  # type: ignore
-        metrics_dict["lpips"] = float(lpips)
+        metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim), "lpips": float(lpips)}  # type: ignore
 
         return metrics_dict, images_dict

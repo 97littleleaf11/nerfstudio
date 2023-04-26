@@ -300,20 +300,25 @@ class TensoRFModel(Model):
         return loss_dict
 
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
         image = batch["image"].to(outputs["rgb"].device)
         rgb = outputs["rgb"]
-        acc = colormaps.apply_colormap(outputs["accumulation"])
-        assert self.config.collider_params is not None
-        depth = colormaps.apply_depth_colormap(
-            outputs["depth"],
-            accumulation=outputs["accumulation"],
-            near_plane=self.config.collider_params["near_plane"],
-            far_plane=self.config.collider_params["far_plane"],
-        )
 
-        combined_rgb = torch.cat([image, rgb], dim=1)
+        if generate_images:
+            acc = colormaps.apply_colormap(outputs["accumulation"])
+            assert self.config.collider_params is not None
+            depth = colormaps.apply_depth_colormap(
+                outputs["depth"],
+                accumulation=outputs["accumulation"],
+                near_plane=self.config.collider_params["near_plane"],
+                far_plane=self.config.collider_params["far_plane"],
+            )
+
+            combined_rgb = torch.cat([image, rgb], dim=1)
+            images_dict = {"img": combined_rgb, "accumulation": acc, "depth": depth}
+        else:
+            images_dict = None
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -328,5 +333,5 @@ class TensoRFModel(Model):
             "ssim": float(ssim.item()),
             "lpips": float(lpips.item()),
         }
-        images_dict = {"img": combined_rgb, "accumulation": acc, "depth": depth}
+
         return metrics_dict, images_dict

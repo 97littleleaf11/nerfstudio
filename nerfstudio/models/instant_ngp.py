@@ -231,20 +231,26 @@ class NGPModel(Model):
         return loss_dict
 
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
 
         image = batch["image"].to(self.device)
         rgb = outputs["rgb"]
-        acc = colormaps.apply_colormap(outputs["accumulation"])
-        depth = colormaps.apply_depth_colormap(
-            outputs["depth"],
-            accumulation=outputs["accumulation"],
-        )
 
-        combined_rgb = torch.cat([image, rgb], dim=1)
-        combined_acc = torch.cat([acc], dim=1)
-        combined_depth = torch.cat([depth], dim=1)
+        if generate_images:
+            acc = colormaps.apply_colormap(outputs["accumulation"])
+            depth = colormaps.apply_depth_colormap(
+                outputs["depth"],
+                accumulation=outputs["accumulation"],
+            )
+
+            combined_rgb = torch.cat([image, rgb], dim=1)
+            combined_acc = torch.cat([acc], dim=1)
+            combined_depth = torch.cat([depth], dim=1)
+
+            images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+        else:
+            images_dict = None
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -256,12 +262,5 @@ class NGPModel(Model):
 
         # all of these metrics will be logged as scalars
         metrics_dict = {"psnr": float(psnr.item()), "ssim": float(ssim), "lpips": float(lpips)}  # type: ignore
-        # TODO(ethan): return an image dictionary
-
-        images_dict = {
-            "img": combined_rgb,
-            "accumulation": combined_acc,
-            "depth": combined_depth,
-        }
 
         return metrics_dict, images_dict

@@ -194,30 +194,35 @@ class NeRFModel(Model):
         return loss_dict
 
     def get_image_metrics_and_images(
-        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor]
-    ) -> Tuple[Dict[str, float], Dict[str, torch.Tensor]]:
+        self, outputs: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], generate_images: bool = True
+    ) -> Tuple[Dict[str, float], Optional[Dict[str, torch.Tensor]]]:
         image = batch["image"].to(outputs["rgb_coarse"].device)
         rgb_coarse = outputs["rgb_coarse"]
         rgb_fine = outputs["rgb_fine"]
-        acc_coarse = colormaps.apply_colormap(outputs["accumulation_coarse"])
-        acc_fine = colormaps.apply_colormap(outputs["accumulation_fine"])
-        assert self.config.collider_params is not None
-        depth_coarse = colormaps.apply_depth_colormap(
-            outputs["depth_coarse"],
-            accumulation=outputs["accumulation_coarse"],
-            near_plane=self.config.collider_params["near_plane"],
-            far_plane=self.config.collider_params["far_plane"],
-        )
-        depth_fine = colormaps.apply_depth_colormap(
-            outputs["depth_fine"],
-            accumulation=outputs["accumulation_fine"],
-            near_plane=self.config.collider_params["near_plane"],
-            far_plane=self.config.collider_params["far_plane"],
-        )
 
-        combined_rgb = torch.cat([image, rgb_coarse, rgb_fine], dim=1)
-        combined_acc = torch.cat([acc_coarse, acc_fine], dim=1)
-        combined_depth = torch.cat([depth_coarse, depth_fine], dim=1)
+        if generate_images:
+            acc_coarse = colormaps.apply_colormap(outputs["accumulation_coarse"])
+            acc_fine = colormaps.apply_colormap(outputs["accumulation_fine"])
+            assert self.config.collider_params is not None
+            depth_coarse = colormaps.apply_depth_colormap(
+                outputs["depth_coarse"],
+                accumulation=outputs["accumulation_coarse"],
+                near_plane=self.config.collider_params["near_plane"],
+                far_plane=self.config.collider_params["far_plane"],
+            )
+            depth_fine = colormaps.apply_depth_colormap(
+                outputs["depth_fine"],
+                accumulation=outputs["accumulation_fine"],
+                near_plane=self.config.collider_params["near_plane"],
+                far_plane=self.config.collider_params["far_plane"],
+            )
+
+            combined_rgb = torch.cat([image, rgb_coarse, rgb_fine], dim=1)
+            combined_acc = torch.cat([acc_coarse, acc_fine], dim=1)
+            combined_depth = torch.cat([depth_coarse, depth_fine], dim=1)
+            images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+        else:
+            images_dict = None
 
         # Switch images from [H, W, C] to [1, C, H, W] for metrics computations
         image = torch.moveaxis(image, -1, 0)[None, ...]
@@ -236,5 +241,5 @@ class NeRFModel(Model):
             "fine_ssim": float(fine_ssim),
             "fine_lpips": float(fine_lpips),
         }
-        images_dict = {"img": combined_rgb, "accumulation": combined_acc, "depth": combined_depth}
+        
         return metrics_dict, images_dict
